@@ -1,0 +1,19 @@
+{
+  "dest": "/srv/firmware",
+  "channel": "release",
+  "keep": 1,
+  "proxy": null,
+
+  "devices": [
+    "UDM-Pro",
+    "U7-Pro",
+    "UAP-AC-M",
+    "USW-Flex-2.5G-5",
+
+    {
+      "device": "USW-Flex-2.5G-5",
+      "product": "unifi-firmware",
+      "_comment": "long form: pin the product when a platform ships more than one"
+    }
+  ]
+}

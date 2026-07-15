@@ -1,0 +1,16 @@
+# real config — carries your device list, proxy and paths
+config.json
+
+# proxy credentials
+*.env
+!.env.example
+
+# mirrored firmware, if anyone points dest at the checkout
+*.bin
+*.part
+manifest.json
+
+__pycache__/
+*.py[cod]
+.venv/
+.DS_Store

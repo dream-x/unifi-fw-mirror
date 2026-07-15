@@ -1,0 +1,11 @@
+[Unit]
+Description=Monthly UniFi firmware sync
+
+[Timer]
+OnCalendar=*-*-01 04:00:00
+# a machine that was off on the 1st syncs at the next boot instead of skipping
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target

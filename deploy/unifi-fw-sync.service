@@ -1,0 +1,18 @@
+[Unit]
+Description=UniFi firmware mirror sync
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# holds UNIFI_FW_PROXY; keep it mode 600, it carries proxy credentials
+EnvironmentFile=-/etc/unifi-fw.env
+Environment=UNIFI_FW_CONFIG=/etc/unifi-fw/config.json
+ExecStart=/usr/bin/python3 /opt/unifi-fw/sync.py sync
+
+# the mirror is the only thing this needs to write to
+ProtectSystem=strict
+ReadWritePaths=/srv/firmware
+ProtectHome=yes
+PrivateTmp=yes
+NoNewPrivileges=yes
