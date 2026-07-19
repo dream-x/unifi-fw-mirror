@@ -11,9 +11,10 @@
     "USW-Flex-2.5G-5",
 
     {
-      "device": "USW-Flex-2.5G-5",
-      "product": "unifi-firmware",
-      "_comment": "long form: pin the product when a platform ships more than one"
+      "device": "UniFi Network (app)",
+      "platform": "uos-deb11-arm64",
+      "product": "unifi",
+      "_comment": "the controller app, not firmware — a .deb, not tied to a model; use uos-deb11-amd64 on x86 consoles"
     }
   ]
 }

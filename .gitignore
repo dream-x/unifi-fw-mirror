@@ -5,8 +5,9 @@ config.json
 *.env
 !.env.example
 
-# mirrored firmware, if anyone points dest at the checkout
+# mirrored artifacts, if anyone points dest at the checkout
 *.bin
+*.deb
 *.part
 manifest.json
 

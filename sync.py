@@ -15,6 +15,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, Iterable
@@ -210,7 +211,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
             continue
 
         version = firmware["version"].lstrip("v").replace("+", "_")
-        target = dest / f"{platform}-{version}.bin"
+        url = firmware["_links"]["data"]["href"]
+        # not everything is a .bin -- the Network application ships as a .deb
+        suffix = Path(urllib.parse.urlparse(url).path).suffix or ".bin"
+        target = dest / f"{platform}-{version}{suffix}"
         want_sha = firmware.get("sha256_checksum")
 
         size_mb = firmware.get("file_size", 0) / 1e6
@@ -223,9 +227,9 @@ def cmd_sync(args: argparse.Namespace) -> int:
             continue
         else:
             log(f"[{platform}] {label}: downloading {firmware['version']} ({size_mb:.1f} MB)")
-            partial = target.with_suffix(".part")
+            partial = target.with_name(target.name + ".part")
             try:
-                download(firmware["_links"]["data"]["href"], partial, cfg["proxy"])
+                download(url, partial, cfg["proxy"])
                 got = sha256_of(partial)
                 if want_sha and got != want_sha:
                     partial.unlink(missing_ok=True)
@@ -247,8 +251,10 @@ def cmd_sync(args: argparse.Namespace) -> int:
         if args.check:
             continue
 
+        # glob without a suffix: a platform can change extension between
+        # releases, and the superseded file still has to go
         superseded = sorted(
-            (p for p in dest.glob(f"{platform}-*.bin") if p != target),
+            (p for p in dest.glob(f"{platform}-*") if p != target and p.is_file()),
             key=lambda p: p.stat().st_mtime,
             reverse=True,
         )
