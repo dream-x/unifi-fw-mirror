@@ -2,15 +2,16 @@
 
 A local mirror of UniFi firmware. Keeps the newest release build for the devices
 you actually own, verifies it against Ubiquiti's own checksum, and serves it on
-your LAN so consoles, access points and switches can flash from a URL that is a
+your LAN so consoles, access points and switches flash from a URL that is a
 millisecond away instead of an ocean away.
 
-No dependencies — standard library Python and `curl`.
+No dependencies — standard-library Python and `curl`. Run it from cron, a systemd
+timer, or the bundled Docker image.
 
 ## Why
 
-- **Speed.** A 900 MB UniFi OS image lands over gigabit ethernet instead of the
-  public internet.
+- **Speed.** A 900 MB UniFi OS image lands over gigabit ethernet, not the public
+  internet.
 - **Determinism.** Two APs of the same model flash byte-identical firmware,
   because they take the same file.
 - **Availability.** You can flash when the upstream CDN is slow, rate-limiting,
@@ -24,18 +25,18 @@ No dependencies — standard library Python and `curl`.
 # what platform code does my device use?
 python3 sync.py resolve "Flex 2.5G"
 
-cp config.example.json /etc/unifi-fw/config.json
-$EDITOR /etc/unifi-fw/config.json
+cp config.example.json config.json
+$EDITOR config.json
 
 # see what is stale without downloading anything
-python3 sync.py sync --check
+UNIFI_FW_CONFIG=config.json python3 sync.py sync --check
 
-python3 sync.py sync
+UNIFI_FW_CONFIG=config.json python3 sync.py sync
 ```
 
-## Configuration
+Or with Docker — see [Docker](#docker) below.
 
-`/etc/unifi-fw/config.json`:
+## Configuration
 
 ```json
 {
@@ -43,17 +44,26 @@ python3 sync.py sync
   "channel": "release",
   "keep": 1,
   "proxy": null,
-  "devices": ["UDM-Pro", "U7-Pro", "UAP-AC-M", "USW-Flex-2.5G-5"]
+  "devices": [
+    "UDM-Pro",
+    "U7-Pro",
+    "UAP-AC-M",
+    "USW-Flex-2.5G-5",
+    { "device": "UniFi Network (app)", "platform": "uos-deb11-arm64", "product": "unifi" }
+  ]
 }
 ```
 
 | key | meaning |
 | --- | --- |
-| `dest` | where firmware lands; point your web server here |
+| `dest` | where files land; point your web server here |
 | `channel` | firmware channel, normally `release` |
 | `keep` | how many versions per device to retain (`1` = only the newest) |
 | `proxy` | SOCKS5 proxy for downloads, or `null` for a direct connection |
 | `devices` | the devices to mirror — see below |
+
+The config path comes from `UNIFI_FW_CONFIG` (default `/etc/unifi-fw/config.json`),
+or `--config`.
 
 A device is either a plain string, resolved against Ubiquiti's device database:
 
@@ -61,14 +71,17 @@ A device is either a plain string, resolved against Ubiquiti's device database:
 "devices": ["UDM-Pro", "USW-Flex-2.5G-5"]
 ```
 
-…or an object, when you need to pin the exact firmware product:
+…or an object, when the name doesn't resolve or you need to pin the exact
+platform and product — as with the Network application, which is not tied to one
+model:
 
 ```json
-"devices": [{ "device": "UDM-Pro", "product": "unifi-dream" }]
+"devices": [{ "device": "UniFi Network (app)", "platform": "uos-deb11-arm64", "product": "unifi" }]
 ```
 
-Credentials do not belong in the config file. `UNIFI_FW_PROXY` overrides
-`proxy`, so a systemd `EnvironmentFile` (mode `600`) can hold the real URL:
+Credentials do not belong in the config file. `UNIFI_FW_PROXY` overrides `proxy`,
+so a systemd `EnvironmentFile` or a Docker `.env` (mode `600`) can hold the real
+URL:
 
 ```
 UNIFI_FW_PROXY=user:password@proxy.example.net:1080
@@ -101,26 +114,30 @@ Switch Flex 2.5G 8
     ...
 ```
 
-Two more traps worth knowing:
+Three traps worth knowing:
 
 - **`U7` means two unrelated things.** It was the platform family for 802.11ac
   hardware (`U7LT` = AC Lite, `U7MSH` = AC Mesh, `U7PG2` = AC Pro), and then
-  Ubiquiti switched to numbering by WiFi generation, so WiFi 7 products landed
-  on the same prefix (`U7PRO` = U7 Pro). `U7MSH` and `U7PRO` are two WiFi
+  Ubiquiti switched to numbering by WiFi generation, so WiFi 7 products landed on
+  the same prefix (`U7PRO` = U7 Pro). `U7MSH` and `U7PRO` are two WiFi
   generations apart.
 - **One platform can carry several products.** `UDMPRO` lists a current
   `unifi-dream` build next to `unifi-firmware` and `udm` builds abandoned years
   ago. Without an explicit `product`, the newest release wins, which picks the
   live line on its own.
+- **The Network application is not firmware.** It rides on the console as a
+  Debian package (`uos-deb11-arm64` / product `unifi`, a `.deb`), separate from
+  the UniFi OS image (`UDMPRO` / `unifi-dream`, a `.bin`). The mirror handles
+  both; the file extension is taken from the download URL, not assumed.
 
-## Deploying
+## Deploying (systemd)
 
 `deploy/` has a systemd service, a monthly timer and an nginx site.
 
 ```bash
 install -Dm755 sync.py /opt/unifi-fw/sync.py
 install -Dm600 /dev/stdin /etc/unifi-fw.env <<<'UNIFI_FW_PROXY=user:pass@proxy:1080'
-install -Dm644 config.example.json /etc/unifi-fw/config.json
+install -Dm644 config.example.json /etc/unifi-fw/config.json  # then edit it
 
 install -Dm644 deploy/unifi-fw-sync.service /etc/systemd/system/unifi-fw-sync.service
 install -Dm644 deploy/unifi-fw-sync.timer   /etc/systemd/system/unifi-fw-sync.timer
@@ -133,16 +150,48 @@ systemctl start unifi-fw-sync          # first run, populates the mirror
 The timer fires on the 1st of each month with `Persistent=true`, so a machine
 that was off simply syncs at the next boot.
 
+## Docker
+
+`docker compose up -d` runs two containers: a syncer on a schedule and an nginx
+serving the shared volume.
+
+```bash
+cp config.example.json config.json      # edit for your devices
+cp .env.example .env                    # set UNIFI_FW_PROXY / HTTP_PORT
+docker compose up -d
+```
+
+The mirror is served on `HTTP_PORT` (default `8080`). `SYNC_INTERVAL` is seconds
+between syncs (default 30 days); `0` syncs once and exits. The image also runs
+`sync.py` directly for one-off commands:
+
+```bash
+docker compose run --rm sync resolve "Flex 2.5G"
+docker compose run --rm sync sync --check
+```
+
 ## Flashing from the mirror
 
-Consoles take a URL over SSH:
+The mirror serves files; flashing them is standard UniFi, not something this
+project invents. What lives in the mirror updates in three different ways.
+
+**Console firmware — UniFi OS `.bin`** (the OS on a UDM/UDR/…). The command
+depends on the major UniFi OS version, so confirm which yours runs
+(`ubnt-device-info firmware`) before flashing:
 
 ```bash
 ssh root@<console-ip>
-ubnt-upgrade http://<mirror>/UDMPRO-5.1.19_3fbc1da.bin
+# UniFi OS 2.x and newer:
+ubnt-systool fwupdate http://<mirror>/UDMPRO-5.1.19_3fbc1da.bin
+# UniFi OS 1.x used instead:
+#   ubnt-upgrade -d http://<mirror>/UDMPRO-...bin
 ```
 
-Access points and switches do too:
+If a build refuses a URL, download the file to `/root/fwupdate.bin` and run
+`ubnt-tools fwupdate /root/fwupdate.bin`.
+
+**Access points and switches — `.bin`.** SSH into the device itself (not the
+console):
 
 ```bash
 ssh ui@<device-ip>
@@ -163,13 +212,18 @@ curl -k -b /tmp/c -X POST \
   -d '{"cmd":"upgrade-external","mac":"<device-mac>","url":"http://<mirror>/U7PRO-8.6.11_18870.bin"}'
 ```
 
-These are the standard UniFi procedures rather than anything this project
-invents; the mirror's job ends at serving a verified file. Flash something
-inconsequential before you flash the console the whole house depends on.
+**The Network application — `.deb`.** This is the controller app, not firmware;
+normally it updates from the console's own UI. UniFi OS manages its packages
+through its own tooling, so treat a manual install as advanced and check the
+current procedure for your OS version rather than running `dpkg -i` blind.
+
+> Flash something inconsequential before the console the whole network depends
+> on, and don't jump major versions without checking the release notes for
+> required intermediate steps — the mirror keeps only the newest build.
 
 ## Output
 
-`dest` ends up holding one firmware per device plus a manifest:
+`dest` holds one artifact per device plus a manifest:
 
 ```json
 {
@@ -189,13 +243,13 @@ inconsequential before you flash the console the whole house depends on.
 
 | url | purpose |
 | --- | --- |
-| `fw-update.ubnt.com/api/firmware-latest` | firmware versions, sizes, checksums, download links |
+| `fw-update.ubnt.com/api/firmware-latest` | versions, sizes, checksums, download links |
 | `static.ubnt.com/fingerprint/ui/public.json` | device database, for `resolve` |
-| `fw-download.ubnt.com` | the firmware itself |
+| `fw-download.ubnt.com` | the files themselves |
 
 Unofficial, and Ubiquiti owes nobody their stability. If a download starts
-failing with **HTTP 451** while the API keeps answering, the CDN is refusing
-your network specifically — set `proxy`.
+failing with **HTTP 451** while the API keeps answering, the CDN is refusing your
+network specifically — set `proxy`.
 
 ## Licence
 
