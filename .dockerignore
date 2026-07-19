@@ -1,0 +1,11 @@
+.git
+.gitignore
+README.md
+LICENSE
+deploy/
+config.json
+.env
+*.bin
+*.part
+manifest.json
+__pycache__/
